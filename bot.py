@@ -1,7 +1,8 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+import os
 
-BOT_TOKEN = "7356647239:AAECWUz3o2VKBq0QZ0lfHQZiVynIxZMSSbU"
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "7356647239:AAECWUz3o2VKBq0QZ0lfHQZiVynIxZMSSbU")
 
 REQUIRED_CHANNELS = [
     {"id": "@kino_uz_channele", "name": "Kino UZ", "url": "https://t.me/kino_uz_channele"},
@@ -9,14 +10,16 @@ REQUIRED_CHANNELS = [
 
 ADMIN_IDS = [6531073126]
 
+# {kod: {"file_id": "...", "nomi": "..."}}
 video_db = {}
 
+# ============ OBUNA TEKSHIRISH ============
 async def check_sub(user_id, bot):
     not_sub = []
     for ch in REQUIRED_CHANNELS:
         try:
             member = await bot.get_chat_member(ch["id"], user_id)
-            if member.status in ["left", "kicked"]:
+            if member.status in ["left", "kicked", "banned"]:
                 not_sub.append(ch)
         except:
             not_sub.append(ch)
@@ -27,6 +30,7 @@ def sub_keyboard(not_sub):
     buttons.append([InlineKeyboardButton("🔄 Tekshirish", callback_data="check")])
     return InlineKeyboardMarkup(buttons)
 
+# ============ /start ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     not_sub = await check_sub(user.id, context.bot)
@@ -39,11 +43,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(
             f"👋 Salom {user.first_name}!\n\n"
-            "🎬 Film kodini yuboring va kinoni oling!\n\n"
-            "📌 Misol: <code>1234</code>",
+            "🎬 Film kodi yoki nomini yuboring!\n\n"
+            "📌 Kod bilan: <code>1234</code>\n"
+            "🔍 Nom bilan: <code>Avengers</code>",
             parse_mode="HTML"
         )
 
+# ============ TEKSHIRISH TUGMASI ============
 async def check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -56,22 +62,26 @@ async def check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text(
             "✅ Obuna tasdiqlandi!\n\n"
-            "🎬 Endi film kodini yuboring!"
+            "🎬 Film kodi yoki nomini yuboring!"
         )
 
+# ============ ADMIN: /add KOD NOMI ============
 async def add_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
-    if not context.args:
+    if len(context.args) < 2:
         await update.message.reply_text(
             "❗ Foydalanish:\n"
             "1. Botga video yuboring\n"
             "2. Shu videoga reply qilib yozing:\n"
-            "<code>/add 1234</code>",
+            "<code>/add 1234 Kino nomi</code>",
             parse_mode="HTML"
         )
         return
+
     kod = context.args[0]
+    nomi = " ".join(context.args[1:])
+
     if update.message.reply_to_message:
         msg = update.message.reply_to_message
         file_id = None
@@ -79,11 +89,13 @@ async def add_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_id = msg.video.file_id
         elif msg.document:
             file_id = msg.document.file_id
+
         if file_id:
-            video_db[kod] = file_id
+            video_db[kod] = {"file_id": file_id, "nomi": nomi}
             await update.message.reply_text(
                 f"✅ Film saqlandi!\n"
-                f"📌 Kod: <code>{kod}</code>\n\n"
+                f"📌 Kod: <code>{kod}</code>\n"
+                f"🎬 Nomi: <b>{nomi}</b>\n\n"
                 f"Instagramga yozing:\n"
                 f"'Filmni olish uchun botga <b>{kod}</b> yuboring'",
                 parse_mode="HTML"
@@ -93,21 +105,23 @@ async def add_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(
             "❌ Avval video yuboring, keyin unga reply qilib:\n"
-            "<code>/add 1234</code>",
+            "<code>/add 1234 Kino nomi</code>",
             parse_mode="HTML"
         )
 
+# ============ ADMIN: /list ============
 async def list_videos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
     if not video_db:
-        await update.message.reply_text("📭 Hali film qo'shilmagan.\n\n/add buyrug'i bilan qo'shing.")
+        await update.message.reply_text("📭 Hali film qo'shilmagan.")
         return
     text = "🎬 <b>Filmlar ro'yxati:</b>\n\n"
-    for k in video_db:
-        text += f"• Kod: <code>{k}</code>\n"
+    for k, v in video_db.items():
+        text += f"📌 Kod: <code>{k}</code> — <b>{v['nomi']}</b>\n"
     await update.message.reply_text(text, parse_mode="HTML")
 
+# ============ ADMIN: /del KOD ============
 async def del_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
@@ -116,14 +130,18 @@ async def del_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     kod = context.args[0]
     if kod in video_db:
+        nomi = video_db[kod]["nomi"]
         del video_db[kod]
-        await update.message.reply_text(f"✅ {kod} kodi o'chirildi.")
+        await update.message.reply_text(f"✅ <b>{nomi}</b> o'chirildi.", parse_mode="HTML")
     else:
         await update.message.reply_text(f"❌ {kod} kodi topilmadi.")
 
+# ============ FOYDALANUVCHI: KOD YOKI NOM ============
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    kod = update.message.text.strip()
+    matn = update.message.text.strip()
+
+    # Obuna tekshirish
     not_sub = await check_sub(user.id, context.bot)
     if not_sub:
         await update.message.reply_text(
@@ -131,23 +149,51 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=sub_keyboard(not_sub)
         )
         return
-    if kod in video_db:
+
+    # 1. Kod bilan qidirish
+    if matn in video_db:
         await update.message.reply_text("⏳ Yuklanmoqda...")
         try:
+            v = video_db[matn]
             await context.bot.send_video(
                 chat_id=update.effective_chat.id,
-                video=video_db[kod],
-                caption=f"🎬 Mana sizning filmingiz!\n\nKod: <code>{kod}</code>",
+                video=v["file_id"],
+                caption=f"🎬 <b>{v['nomi']}</b>\n\nKod: <code>{matn}</code>",
                 parse_mode="HTML"
             )
         except Exception as e:
             await update.message.reply_text(f"❌ Xatolik: {e}")
+        return
+
+    # 2. Nom bilan qidirish
+    natijalar = []
+    for kod, v in video_db.items():
+        if matn.lower() in v["nomi"].lower():
+            natijalar.append((kod, v["nomi"]))
+
+    if natijalar:
+        if len(natijalar) == 1:
+            kod, nomi = natijalar[0]
+            await update.message.reply_text("⏳ Yuklanmoqda...")
+            await context.bot.send_video(
+                chat_id=update.effective_chat.id,
+                video=video_db[kod]["file_id"],
+                caption=f"🎬 <b>{nomi}</b>\n\nKod: <code>{kod}</code>",
+                parse_mode="HTML"
+            )
+        else:
+            text = f"🔍 <b>'{matn}'</b> bo'yicha natijalar:\n\n"
+            for kod, nomi in natijalar:
+                text += f"📌 <code>{kod}</code> — <b>{nomi}</b>\n"
+            text += "\nKodini yuboring!"
+            await update.message.reply_text(text, parse_mode="HTML")
     else:
         await update.message.reply_text(
-            "❌ Bunday kod topilmadi!\n"
-            "Kodni to'g'ri yozdingizmi? 🤔"
+            "❌ Film topilmadi!\n\n"
+            "🔍 Boshqacha yozib ko'ring yoki kodni kiriting."
         )
 
+# ============ ISHGA TUSHIRISH ============
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
